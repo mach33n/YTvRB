@@ -50,17 +50,20 @@ class LSTMMod(nn.Module):
     def __init__(self):
         super(LSTMMod, self).__init__()
         self.embedding_layer = nn.Embedding(vocab_size, 300, padding_idx=padding_id)
-        self.lstm = nn.LSTM(300, 10, num_layers=3, dropout=0.3)
+        self.lstm = nn.LSTM(300, 100, dropout=0.3)
+        self.relu = nn.ReLU()
         self.out = nn.LazyLinear(num_classes)
         self.logSoftmax = nn.LogSoftmax(dim=0)
         
     def forward(self, x):
         x, hid = self.lstm(self.embedding_layer(x))
+        x = self.relu(x)
         x = torch.flatten(x, start_dim=1)
         return self.out(x)
 
 lstmMod = LSTMMod()
-optimizer = optim.Adam(lstmMod.parameters(), lr=0.1)
+optimizer = optim.Adam(lstmMod.parameters(), lr=1e-3, weight_decay=0.0001)
+criterion = nn.CrossEntropyLoss(weight=torch.tensor(dataloader.class_weights).float())
 
 def accuracy_torch(
         preds, labels, num_classes: int, average: str = "micro", device: str = None
@@ -212,5 +215,5 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
         return model, train_epoch_acc, train_epoch_acc
 
 # Train
-model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, nn.CrossEntropyLoss(), {}, {}, num_classes, check=False)
+model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, criterion, {}, {}, num_classes, check=False)
 
