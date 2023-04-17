@@ -3,6 +3,12 @@ import RumbleCommentScraper as RCS
 import YoutubeCommentScraper as YCS
 from .data_loader import EADataLoader
 import logging
+from torchmetrics.classification import (
+    MulticlassAccuracy,
+    MulticlassF1Score,
+    MulticlassPrecision,
+    MulticlassRecall,
+)
 
 scraper = RCS.RumbleCommentScraper(username='CS6474', password='georgiatech')
 comments = scraper.scrape_comments_from_url('https://rumble.com/v2gcxvy--live-daily-show-louder-with-crowder.html', 50)
@@ -52,11 +58,100 @@ class LSTMMod(nn.Module):
 lstmMod = LSTMMod()
 optimizer = optim.Adam(lstmMod.parameters(), lr=0.1)
 
+def accuracy_torch(
+        preds, labels, num_classes: int, average: str = "micro", device: str = None
+) -> float:
+    """Accuracy for tensors
+    Args:
+        preds (torch.Tensor): predictions as a (N,) tensor
+        labels (torch.Tensor): labels as a (N,) tensor
+    Returns:
+        float: accuracy score
+    """
+    acc_metric = MulticlassAccuracy(num_classes=num_classes, average=average)
+    acc_metric = acc_metric.to(device)
+    acc_tensor = acc_metric(preds, labels)
+    return acc_tensor.item()
+
+
+def f1_torch(
+        preds, labels, num_classes: int, average: str = "weighted", device: str = None
+) -> float:
+    """F1 Score for tensors
+    Args:
+        preds (torch.Tensor): predictions as a (N,) tensor
+        labels (torch.Tensor): labels as a (N,) tensor
+        num_classes (int): number of classes in the classification
+        average (str, optional): method for aggregating over labels. Defaults to "macro".
+            See for details: https://torchmetrics.readthedocs.io/en/stable/classification/f1_score.html?highlight=F1
+    Returns:
+        float: F1 score
+    """
+    f1_metric = MulticlassF1Score(num_classes=num_classes, average=average)
+    f1_metric = f1_metric.to(device)
+    f1_tensor = f1_metric(preds, labels)
+    return f1_tensor.item()
+
+def evalm(model: nn.Module, iterator: EADataLoader, criterion, cust_metrics: dict, custScores:dict, num_classes: int, val: bool = False, check: bool = False):
+    model.eval()
+
+    if val:
+        loader = iterator.val_loader
+    else:
+        loader = iterator.test_loader
+    
+    epoch_loss = 0
+    epoch_acc = 0
+    epoch_f1 = 0
+
+    device = "cpu"
+
+    cats = list(range(len(loader.dataset.categories)))
+    cat_count = {key : [0] for key in cats}
+    cat_acc = {key : [0] for key in cats}
+    cat_f1 = {key : [0] for key in cats}
+    for idx, (tokens, masks, labels, categories) in enumerate(loader):
+        # Necessary locally not sure why
+        tokens = tokens.long()
+        tokens = tokens.squeeze(1)
+        tokens = tokens.to(device)
+        labels = labels.to(device)
+        
+        output = model(tokens)
+
+        # Forward pass and
+        probs = nn.functional.softmax(output, -1)  # Softmax over final dimension for classification
+        preds = torch.argmax(probs, -1)
+        preds = preds.to(device)
+        labels = labels.long()
+
+        # Loss and Optimizer step
+        loss = criterion(output, labels)
+
+        acc = accuracy_torch(preds, labels, num_classes, device=device)
+        f1 = f1_torch(preds, labels, num_classes, device=device)
+        epoch_loss += loss.item()
+        epoch_acc += acc
+        epoch_f1 += f1
+
+    # Normalize loss and accuracies
+    epoch_acc = epoch_acc / len(loader)
+    epoch_loss = epoch_loss / len(loader)
+    epoch_f1 = epoch_f1 /  len(loader)
+    print(f"Epoch acc {epoch_acc}")
+    print(f"Epoch loss {epoch_loss}")
+
+    # custScores["f1_score"] = epoch_f1
+
+    if not val:
+        return epoch_loss, epoch_acc, epoch_f1, cat_acc, cat_f1, cat_count
+    return epoch_loss, epoch_acc, epoch_f1
 
 def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion, cust_metrics: dict, custScores:dict, num_classes: int, epochs: int = 15, check: bool = False):
         bad = 0
         prev_train_acc = 0
         iters = 0
+        device = "cpu"
         while bad < 5 and iters < epochs:
             model.train()
             train_epoch_loss = 0
@@ -68,8 +163,8 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
                 # Necessary locally not sure why
                 tokens = tokens.long()
                 tokens = tokens.squeeze(1)
-                tokens = tokens.to(self.device)
-                labels = labels.to(self.device)
+                tokens = tokens.to(device)
+                labels = labels.to(device)
                 masks = masks.squeeze(0)
 
                 # Forward pass and
@@ -78,7 +173,7 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
                     output, -1
                 )  # Softmax over final dimension for classification
                 preds = torch.argmax(probs, -1)
-                preds = preds.to(self.device)
+                preds = preds.to(device)
                 labels = labels.long()
 
                 # Loss and Optimizer step
@@ -87,8 +182,8 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
                 torch.nn.utils.clip_grad_norm(model.parameters(), 5)
                 optimizer.step()
 
-                acc = accuracy_torch(preds, labels, num_classes, device=self.device)
-                f1 = f1_torch(preds, labels, num_classes, device=self.device)
+                acc = accuracy_torch(preds, labels, num_classes, device=device)
+                f1 = f1_torch(preds, labels, num_classes, device=device)
                 train_epoch_f1 += f1
                 train_epoch_loss += loss.item()
                 train_epoch_acc += acc
@@ -100,11 +195,11 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
             train_epoch_acc = train_epoch_acc / len(iterator.train_loader)
             train_epoch_loss = train_epoch_loss / len(iterator.train_loader)
             train_epoch_f1 = train_epoch_f1 / len(iterator.train_loader)
-            logging.info(f"Epoch: {str(iters).zfill(2)}, Train Accuracy: {train_epoch_acc:.4f}, Train Loss: {train_epoch_loss:.4f}, Train F1: {train_epoch_f1:.4f}")
+            print(f"Epoch: {str(iters).zfill(2)}, Train Accuracy: {train_epoch_acc:.4f}, Train Loss: {train_epoch_loss:.4f}, Train F1: {train_epoch_f1:.4f}")
 
             # Evaluate on validation set
-            val_epoch_loss, val_epoch_acc, val_epoch_f1 = self.eval(model, iterator, criterion, cust_metrics, custScores, num_classes, val=True, check=check)
-            logging.info(f"Epoch: {str(iters).zfill(2)}, Val   Accuracy: {val_epoch_acc:.4f}, Val   Loss: {val_epoch_loss:.4f}, Val   F1: {val_epoch_f1:.4f}")
+            val_epoch_loss, val_epoch_acc, val_epoch_f1 = evalm(model, iterator, criterion, cust_metrics, custScores, num_classes, val=True, check=check)
+            print(f"Epoch: {str(iters).zfill(2)}, Val   Accuracy: {val_epoch_acc:.4f}, Val   Loss: {val_epoch_loss:.4f}, Val   F1: {val_epoch_f1:.4f}")
 
             if train_epoch_acc < prev_train_acc:
                 bad += 1
