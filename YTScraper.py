@@ -6,9 +6,9 @@ example_ID_list = [("Topic", "Title", "_VB39Jo8mAQ")]
 
 class YoutubeCommentScraper:
     def __init__(self, commentCount: int = 1000, API_Key: str = "AIzaSyDUQyRdH2MOj-JG0bjLrydbNVC7-EjzCqo"):
-    self.part = "snippet%2Creplies"
-    self.key = API_Key
-    self.commentCount = commentCount
+        self.part = "snippet%2Creplies"
+        self.key = API_Key
+        self.commentCount = commentCount
 
     def scrape_comments_from_list(self, IDList: list):
         comments = []

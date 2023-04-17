@@ -1,7 +1,7 @@
 import torch
 import RumbleCommentScraper as RCS
-import YoutubeCommentScraper as YCS
-from .data_loader import EADataLoader
+import YTScraper as YCS
+from data_loader import EADataLoader
 import logging
 from torchmetrics.classification import (
     MulticlassAccuracy,
@@ -10,11 +10,11 @@ from torchmetrics.classification import (
     MulticlassRecall,
 )
 
-scraper = RCS.RumbleCommentScraper(username='CS6474', password='georgiatech')
-comments = scraper.scrape_comments_from_url('https://rumble.com/v2gcxvy--live-daily-show-louder-with-crowder.html', 50)
+# scraper = RCS.RumbleCommentScraper(username='CS6474', password='georgiatech')
+# comments = scraper.scrape_comments_from_url('https://rumble.com/v2gcxvy--live-daily-show-louder-with-crowder.html', 50)
 
-for comment in comments:
-    print(comment)
+# for comment in comments:
+#     print(comment)
 
 ## Models
 import torch
@@ -31,13 +31,14 @@ num_classes = dataloader.num_classes
 
 vocab_size = dataloader.tokenize.vocab_size
 padding_id = dataloader.tokenize.pad_token_id
-embedding_layer = nn.Embedding(vocab_size, 300, padding_idx=padding_id)
+
 
 num_classes  = 2
 
 class LogisticRegression(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
          super(LogisticRegression, self).__init__()
+         self.embedding_layer = nn.Embedding(vocab_size, 300, padding_idx=padding_id)
          self.linear = torch.nn.Linear(input_dim, output_dim)     
 
     def forward(self, x):
@@ -48,12 +49,15 @@ class LogisticRegression(torch.nn.Module):
 class LSTMMod(nn.Module):
     def __init__(self):
         super(LSTMMod, self).__init__()
-        self.lstm = nn.LSTM()
+        self.embedding_layer = nn.Embedding(vocab_size, 300, padding_idx=padding_id)
+        self.lstm = nn.LSTM(300, 10, num_layers=3, dropout=0.3)
         self.out = nn.LazyLinear(num_classes)
         self.logSoftmax = nn.LogSoftmax(dim=0)
         
     def forward(self, x):
-        return self.logSoftmax(self.lstm(x))
+        x, hid = self.lstm(self.embedding_layer(x))
+        x = torch.flatten(x, start_dim=1)
+        return self.out(x)
 
 lstmMod = LSTMMod()
 optimizer = optim.Adam(lstmMod.parameters(), lr=0.1)
@@ -208,5 +212,5 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
         return model, train_epoch_acc, train_epoch_acc
 
 # Train
-model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, nn.CrossEntropyLoss(), {}, {}, num_classes, check=True)
+model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, nn.CrossEntropyLoss(), {}, {}, num_classes, check=False)
 
