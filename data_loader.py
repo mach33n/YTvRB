@@ -23,10 +23,10 @@ class NLPDataset(Dataset):
         label_val = nlp_df["overall"]
         self.labels, self.label_idxes, self.label_counts = np.unique(label_val, return_inverse=True, return_counts=True)
 
-        category_str = nlp_df["Category"]
-        self.categories, self.category_idxes = np.unique(
-            category_str, return_inverse=True
-        )
+        # category_str = nlp_df["Category"]
+        # self.categories, self.category_idxes = np.unique(
+        #     category_str, return_inverse=True
+        # )
 
     def get_num_classes(self) -> int:
         """Return the number of classes for classification"""
@@ -48,7 +48,7 @@ class NLPDataset(Dataset):
         Returns:
             Tuple[str, int, str]: text review, label index, and category index
         """
-        return self.x_train[idx], self.label_idxes[idx], self.category_idxes[idx]
+        return self.x_train[idx], self.label_idxes[idx]
 
 
 class EADataLoader:
@@ -66,7 +66,7 @@ class EADataLoader:
         self.seed = 42
 
     def loadData(
-        self, file_name, train, label, cols=["reviewText", "overall", "Category"], *add
+        self, file_name, train, label, cols=["reviewText", "overall"], *add
     ):
         dset = NLPDataset(file_name, train, label, cols=cols, *add)
         self.num_classes, self.class_weights = dset.get_num_classes()
@@ -118,12 +118,12 @@ class EADataLoader:
         x_mask = pad_sequence([tup[1] for tup in out])
         y_mod = torch.Tensor(list(map(lambda x_new: x_new[1], inp)))
         x_mod = torch.transpose(x_mod, 1, 0)
-        categories = torch.tensor(list(map(lambda x_new: x_new[2], inp)))
-        return x_mod, x_mask, y_mod, categories
+        # categories = torch.tensor(list(map(lambda x_new: x_new[2], inp)))
+        return x_mod, x_mask, y_mod
 
     def transformText(self, text):
         try:
-            out = self.tokenize(text, return_tensors='pt',  truncation=True, max_length=128, padding="max_length")
+            out = self.tokenize(text, return_tensors='pt',  truncation=True, max_length=300, padding="max_length")
         except:
             print(text)
             raise Exception

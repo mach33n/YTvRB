@@ -9,6 +9,7 @@ from torchmetrics.classification import (
     MulticlassPrecision,
     MulticlassRecall,
 )
+import pickle
 
 # scraper = RCS.RumbleCommentScraper(username='CS6474', password='georgiatech')
 # comments = scraper.scrape_comments_from_url('https://rumble.com/v2gcxvy--live-daily-show-louder-with-crowder.html', 50)
@@ -51,12 +52,14 @@ class LSTMMod(nn.Module):
         super(LSTMMod, self).__init__()
         self.embedding_layer = nn.Embedding(vocab_size, 300, padding_idx=padding_id)
         self.lstm = nn.LSTM(300, 100, dropout=0.3)
+        self.batch_norm = nn.BatchNorm1d(300)
         self.relu = nn.ReLU()
         self.out = nn.LazyLinear(num_classes)
         self.logSoftmax = nn.LogSoftmax(dim=0)
         
     def forward(self, x):
         x, hid = self.lstm(self.embedding_layer(x))
+        x = self.batch_norm(x)
         x = self.relu(x)
         x = torch.flatten(x, start_dim=1)
         return self.out(x)
@@ -113,11 +116,7 @@ def evalm(model: nn.Module, iterator: EADataLoader, criterion, cust_metrics: dic
 
     device = "cpu"
 
-    cats = list(range(len(loader.dataset.categories)))
-    cat_count = {key : [0] for key in cats}
-    cat_acc = {key : [0] for key in cats}
-    cat_f1 = {key : [0] for key in cats}
-    for idx, (tokens, masks, labels, categories) in enumerate(loader):
+    for idx, (tokens, masks, labels) in enumerate(loader):
         # Necessary locally not sure why
         tokens = tokens.long()
         tokens = tokens.squeeze(1)
@@ -151,7 +150,7 @@ def evalm(model: nn.Module, iterator: EADataLoader, criterion, cust_metrics: dic
     # custScores["f1_score"] = epoch_f1
 
     if not val:
-        return epoch_loss, epoch_acc, epoch_f1, cat_acc, cat_f1, cat_count
+        return epoch_loss, epoch_acc, epoch_f1
     return epoch_loss, epoch_acc, epoch_f1
 
 def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion, cust_metrics: dict, custScores:dict, num_classes: int, epochs: int = 15, check: bool = False):
@@ -164,7 +163,7 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
             train_epoch_loss = 0
             train_epoch_acc = 0
             train_epoch_f1 = 0
-            for idx, (tokens, masks, labels, categories) in enumerate(iterator.train_loader):
+            for idx, (tokens, masks, labels) in enumerate(iterator.train_loader):
                 optimizer.zero_grad()
 
                 # Necessary locally not sure why
@@ -215,5 +214,25 @@ def train(model: nn.Module, iterator: EADataLoader, optimizer: optim, criterion,
         return model, train_epoch_acc, train_epoch_acc
 
 # Train
-model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, criterion, {}, {}, num_classes, check=False)
+# model, epoch_loss, epoch_acc = train(lstmMod, dataloader, optimizer, criterion, {}, {}, num_classes, check=False)
 
+# torch.save(model, "models/base.mdl")
+
+model = torch.load("models/base.mdl")
+
+example_ID_list = [("Topic", "Title", "_VB39Jo8mAQ")]
+youtube = YCS.YoutubeCommentScraper()
+youtube.scrape_comments_from_list(example_ID_list)
+
+with open("YT/Topic/Title.pkl", "rb") as f:
+    comments = pickle.load(f)
+    print(f"Comments: {comments}")
+    for id, text, repCount in comments:
+        out, mask = dataloader.transformText(text)
+        output = model(out)
+        probs = nn.functional.softmax(
+            output, -1
+        )  # Softmax over final dimension for classification
+        preds = torch.argmax(probs, -1)
+        print(preds) # 0 is negative, 1 is positive
+        break

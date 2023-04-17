@@ -14,9 +14,9 @@ class YoutubeCommentScraper:
         comments = []
         count = 0
         pageToken = ""
-        for topic, title, idstr in videoIds:
-            while count < commentCount:
-                out = requests.get(f"https://youtube.googleapis.com/youtube/v3/commentThreads?part={part}&videoId={idstr}&key={key}&maxResults=100&pageToken={pageToken}")
+        for topic, title, idstr in IDList:
+            while count < self.commentCount:
+                out = requests.get(f"https://youtube.googleapis.com/youtube/v3/commentThreads?part={self.part}&videoId={idstr}&key={self.key}&maxResults=100&pageToken={pageToken}")
                 resp = out.json()
                 count += int(resp["pageInfo"]["totalResults"])
                 comments += map(lambda x: (x["id"], x["snippet"]["topLevelComment"]["snippet"]["textOriginal"], x["snippet"]["totalReplyCount"]), resp["items"])
